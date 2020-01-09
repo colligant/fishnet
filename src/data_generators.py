@@ -2,13 +2,15 @@ import numpy as np
 import pdb
 import os
 from matplotlib.pyplot import imread, imshow, show
+from tensorflow.keras.applications.vgg16 import preprocess_input
 from tensorflow.keras.utils import Sequence
 from glob import glob
 from cv2 import resize
 
 def _load_image(f, grayscale=False):
     im = imread(f)
-    return im/np.max(im)
+    im = im / np.max(im)
+    return im
 
 
 class ClassificationDataGenerator(Sequence):
@@ -73,8 +75,8 @@ class SegmentationDataGenerator(Sequence):
 
     def __init__(self, data_directory, batch_size, resize=(), resize_mask=()):
         # resize should be tuple of (x_resize_factor, y_resize_factor)
-        self.masks = sorted(glob(join(data_directory, 'masks', '*png')))
-        self.images = sorted(glob(join(data_directory, 'images', '*png')))
+        self.masks = sorted(glob(os.path.join(data_directory, 'masks', '*png')))
+        self.images = sorted(glob(os.path.join(data_directory, 'images', '*png')))
         if len(self.masks) != len(self.images):
             raise ValueError('expected number of labels to equal number of images')
         self.n_instances = len(self.images)
@@ -82,6 +84,14 @@ class SegmentationDataGenerator(Sequence):
         self.resize = resize
         self.resize_mask = resize_mask
 
+    def _do_nothing(self, image, labels):
+        return image, labels
+
+    def _hflip(self, image, labels):
+        return np.fliplr(image), np.fliplr(labels)
+
+    def augment(self, image, labels):
+        return np.random.choice([self._do_nothing, self._hflip])(image, labels)
 
     def __getitem__(self, idx):
         labels = self.masks[self.batch_size*idx:self.batch_size*(idx+1)]
@@ -91,16 +101,14 @@ class SegmentationDataGenerator(Sequence):
         if len(self.resize):
             for i in range(len(images)):
                 images[i] = resize(images[i], self.resize) 
-                # images[i] = resize(images[i], (0,0), fx=self.resize[0],
-                #         fy=self.resize[1]) 
                 # resize uses some sort of interpolation, meaning
                 # values of inputs get changed. For labels,
                 # the values need to be 0 or 1.
                 labels[i] = np.round(resize(labels[i], self.resize_mask))
-                # labels[i] = np.round(resize(labels[i], (0,0),
-                #     fx=self.resize_mask[0], fy=self.resize_mask[1]))
 
         return np.asarray(images), np.expand_dims(np.asarray(labels), -1)
+
+
 
     def on_epoch_end(self):
         # shuffle data
@@ -111,6 +119,7 @@ class SegmentationDataGenerator(Sequence):
 
     def __len__(self):
         return int(np.ceil(self.n_instances // self.batch_size))
+
 
 
 if __name__ == '__main__':
